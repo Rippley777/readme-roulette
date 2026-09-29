@@ -77,6 +77,25 @@ await page.getByRole('button', { name: 'Regenerate Testing', exact: true }).clic
 await page.getByRole('status').filter({ hasText: 'Testing regenerated' }).waitFor();
 await page.getByRole('button', { name: 'Move Testing up', exact: true }).click();
 await page.getByRole('button', { name: 'Customize', exact: true }).click();
+const source = page.getByLabel('README Markdown source');
+const beforeRefine = await source.inputValue();
+const selection = "See teh listening ports.\n\n~~~sh\nprintf 'teh'\n~~~";
+await source.fill(beforeRefine + '\n' + selection);
+await source.evaluate((el, start) => {
+  el.focus();
+  el.setSelectionRange(start, el.value.length);
+}, beforeRefine.length + 1);
+const rewriteRequest = page.waitForRequest((r) => r.url().endsWith('/api/rewrite'));
+await page.getByLabel('Rewrite selected text').selectOption('Fix grammar');
+assert.equal((await rewriteRequest).postDataJSON().tone, 'Personality');
+await page
+  .getByRole('status')
+  .filter({ hasText: 'Selection updated using local editing rules.' })
+  .waitFor();
+assert.equal(
+  await source.inputValue(),
+  beforeRefine + '\n' + selection.replace('See teh', 'See the'),
+);
 const savedMarkdown = await page.getByLabel('README Markdown source').inputValue();
 await page.getByRole('button', { name: 'Save version', exact: true }).click();
 await page.getByRole('status').filter({ hasText: 'Version saved' }).waitFor();

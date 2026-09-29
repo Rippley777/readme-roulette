@@ -1,14 +1,38 @@
+/** Track CommonMark fences, including longer fences containing shorter examples. */
+export function markdownLines(markdown: string) {
+  let fence: { marker: string; length: number } | undefined;
+  return markdown.split('\n').map((line) => {
+    const marker = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+    const inCode = Boolean(fence || marker || /^(?: {4}|\t)/.test(line));
+    if (marker) {
+      if (!fence) fence = { marker: marker[1][0], length: marker[1].length };
+      else if (
+        marker[1][0] === fence.marker &&
+        marker[1].length >= fence.length &&
+        !marker[2].trim()
+      )
+        fence = undefined;
+    }
+    return { line, inCode };
+  });
+}
+/** Protect runnable examples, identifiers, links, tables and headings during prose edits. */
+export function markdownSegments(markdown: string) {
+  return markdownLines(markdown).flatMap(({ line, inCode }, index, lines) => {
+    const suffix = index < lines.length - 1 ? '\n' : '';
+    if (inCode || /^\s*(?:#{1,6} |\||<!--|-->)/.test(line))
+      return [{ text: line + suffix, protected: true }];
+    return (line + suffix)
+      .split(/(`+[^`\n]*`+|!?\[[^\]]*\]\([^)]*\)|https?:\/\/[^\s]+)/g)
+      .filter(Boolean)
+      .map((text) => ({ text, protected: /^`|^!?\[|^https?:\/\//.test(text) }));
+  });
+}
 /** Split only actual level-two headings, never headings inside fenced examples. */
 export function splitMarkdown(markdown: string): { title: string; body: string }[] {
   const blocks: { title: string; body: string }[] = [{ title: '', body: '' }];
-  let fence = '';
-  for (const line of markdown.replace(/\r\n/g, '\n').split('\n')) {
-    const marker = line.match(/^\s*(`{3,}|~{3,})/);
-    if (marker) {
-      if (!fence) fence = marker[1][0];
-      else if (marker[1][0] === fence) fence = '';
-    }
-    const heading = !fence && line.match(/^##\s+(.+?)\s*#*\s*$/);
+  for (const { line, inCode } of markdownLines(markdown.replace(/\r\n/g, '\n'))) {
+    const heading = !inCode && line.match(/^##\s+(.+?)\s*#*\s*$/);
     if (heading) blocks.push({ title: heading[1], body: '' });
     else blocks[blocks.length - 1].body += line + '\n';
   }

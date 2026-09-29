@@ -70,12 +70,12 @@ Set `AI_ENDPOINT` and optionally `AI_API_KEY`. Requests use `task: "readme_gener
 }
 ```
 
-Copy unchanged fields and factual sections from the supplied baseline; the example is a schema illustration, not a valid response for every project. Existing adapters can continue returning `{ "text": "Markdown" }`. The request retains `text`, `instruction`, and `project`; text responses are parsed into the section plan and checked by the same gate. Selection rewrites keep the original text-response contract.
+Copy unchanged fields and factual sections from the supplied baseline; the example is a schema illustration, not a valid response for every project. Existing adapters can continue returning `{ "text": "Markdown" }`. The request retains `text`, `instruction`, and `project`; text responses are parsed into the section plan and checked by the same gate. Selection rewrites keep the original text-response contract. Their `readme_selection_rewrite_v2` requests include the chosen tone, supported product claims, and repair findings. They use the same editorial and capability checks, retry once, then fall back to a checked local edit or leave the selection unchanged. Code examples, inline identifiers, links, headings, and tables are preserved. The editor reports which outcome occurred.
 
 The HTTP adapter receives normalized evidence and bounded, redacted source excerpts, not entire source files or environment values. It has no ability to invoke tools, run repository code, or write to GitHub.
 
 ## Verification
 
-`npm test` covers independent apps, a CLI, an API, a library, sparse evidence, false-positive signals, screenshot detection, all four tones, quality repairs, provider compatibility, and evidence retention. `npm run test:browser` checks tone switching, source inspection, section regeneration, version restoration, diff review, and mobile layout.
+`npm test` covers independent apps, a CLI, an API, a library, sparse evidence, false-positive signals, screenshot detection, all four tones, quality repairs, provider compatibility, selected-text repair/fallback, fenced-code preservation, and evidence retention. `npm run test:browser` checks tone switching, source inspection, section regeneration, version restoration, diff review, and mobile layout.
 
 The generated Port Authority examples under `artifacts/generation/` come from the explicitly labeled demo source snapshots. The snapshots include supported process inspection, termination, browser opening, filtering, and refresh behavior. They do not contain restart support, so none of the generated tones promise it.

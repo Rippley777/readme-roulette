@@ -1,5 +1,6 @@
 import { Analysis, ReadmeDraft } from './types';
 import { redact } from './safety';
+import { markdownLines } from './markdown-sections';
 
 export const bannedLanguage =
   /\b(?:a powerful tool for|this project aims to|built with modern technologies|this documentation is based on|streamline(?:s|d)? your workflow|seamlessly|robust|cutting[- ]edge|whether you(?:'|’)re a beginner|includes? .{0,45} in package\.json)\b/i;
@@ -15,18 +16,18 @@ const normalize = (text: string) =>
     .replace(/\s+/g, ' ')
     .trim();
 const plain = (text: string) =>
-  text
-    .replace(/```[\s\S]*?```/g, '')
+  markdownLines(text)
+    .filter((l) => !l.inCode)
+    .map((l) => l.line)
+    .join('\n')
     .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/!\[[^\]]*\]\([^)]*\)/g, '');
 export type QualityIssue = { rule: string; section: string; detail: string };
 function pruneEmptyHeadings(body: string, section: string, issues: QualityIssue[]) {
   const lines = body.split('\n');
-  let fenced = false;
   const headings: { index: number; level: number }[] = [];
-  lines.forEach((line, index) => {
-    if (/^\s*```/.test(line)) fenced = !fenced;
-    const heading = !fenced && line.match(/^(#{1,6}) /);
+  markdownLines(body).forEach(({ line, inCode }, index) => {
+    const heading = !inCode && line.match(/^(#{1,6}) /);
     if (heading) headings.push({ index, level: heading[1].length });
   });
   const remove = new Set<number>();
@@ -55,14 +56,8 @@ export function reviewDraft(input: ReadmeDraft, a: Analysis) {
   const issues: QualityIssue[] = [];
   const seen = new Set<string>();
   const prose = (text: string, section: string) => {
-    let inCode = false;
-    return redact(text)
-      .split('\n')
-      .map((line) => {
-        if (/^\s*```/.test(line)) {
-          inCode = !inCode;
-          return line;
-        }
+    return markdownLines(redact(text))
+      .map(({ line, inCode }) => {
         if (inCode || /^\s*(?:\||!\[|<!--|-->|\d+\.)/.test(line)) return line;
         if (
           bannedLanguage.test(line) ||
@@ -89,7 +84,6 @@ export function reviewDraft(input: ReadmeDraft, a: Analysis) {
           .join(' ');
       })
       .join('\n')
-      .replace(/\n{3,}/g, '\n\n')
       .trim();
   };
   draft.tagline = prose(draft.tagline, 'Opening');
@@ -104,7 +98,11 @@ export function reviewDraft(input: ReadmeDraft, a: Analysis) {
       const useful = plain(section.body)
         .replace(/^#{1,6} .*$/gm, '')
         .trim();
-      if (!useful && !/```[^`]+```|!\[[^\]]*\]\([^)]+\)/.test(section.body)) {
+      if (
+        !useful &&
+        !markdownLines(section.body).some((l) => l.inCode && l.line.trim()) &&
+        !/!\[[^\]]*\]\([^)]+\)/.test(section.body)
+      ) {
         issues.push({
           rule: 'empty-section',
           section: section.id,

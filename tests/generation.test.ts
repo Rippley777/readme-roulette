@@ -368,3 +368,14 @@ test('empty nested headings are removed without stripping headings in fenced exa
   assert.match(text, /### Example heading/);
   assert.ok(result.issues.some((i) => i.rule === 'empty-heading'));
 });
+
+test('quality cleanup preserves tilde and nested backtick examples verbatim', async () => {
+  const a = await port(),
+    draft = generator.draft(a);
+  const body =
+    '~~~~markdown\n```js\n## Example, not a section\n```\nThis project aims to demonstrate a string.\n\n\n~~~~\n\n~~~sh\nprintf "robust"\n~~~';
+  draft.sections.push({ id: 'Usage', title: 'Usage', body, claimIds: [] });
+  const result = reviewDraft(draft, a);
+  assert.equal(result.draft.sections.find((s) => s.id === 'Usage')?.body, body);
+  assert.equal(splitMarkdown(`## Usage\n${body}\n## License\nMIT`).length, 3);
+});

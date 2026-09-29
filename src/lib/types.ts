@@ -54,7 +54,15 @@ export interface RepositoryProvider {
   read(repo: Repository, file: RepoFile): Promise<string>;
 }
 export interface AIProvider {
-  rewrite(text: string, instruction: string, analysis: Analysis): Promise<string>;
+  rewrite(
+    text: string,
+    instruction: string,
+    analysis: Analysis,
+    options?: {
+      tone: Tone;
+      issues?: { rule: string; section: string; detail: string }[];
+    },
+  ): Promise<string>;
 }
 
 export type Tone = 'Professional' | 'Developer' | 'Personality' | 'Unhinged';

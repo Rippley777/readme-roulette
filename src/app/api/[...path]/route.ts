@@ -5,12 +5,13 @@ import { z } from 'zod';
 import db, { createSession, deleteSession, getSession } from '@/lib/db';
 import { DemoProvider, GitHubProvider } from '@/lib/github';
 import { RepositoryAnalyzer } from '@/lib/analyzer';
-import { DocumentationGenerator, LocalAIProvider, profiles, tones } from '@/lib/generator';
+import { DocumentationGenerator, profiles, tones } from '@/lib/generator';
 import { demoRepos } from '@/lib/demo';
 import { Analysis, Profile, Tone } from '@/lib/types';
 import { scoreRepository } from '@/lib/score';
-import { getAIProvider, getDraftWriter } from '@/lib/ai-provider';
+import { getRewriteProvider, getDraftWriter } from '@/lib/ai-provider';
 import { generateReadme } from '@/lib/generation-service';
+import { rewriteSelection } from '@/lib/rewrite-service';
 export const runtime = 'nodejs';
 const repoSchema = z.string().regex(/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/);
 async function context() {
@@ -279,10 +280,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pat
       const instruction = z
         .enum(['Shorten', 'Make more casual', 'Make more technical', 'Fix grammar', 'Expand'])
         .parse(body.instruction);
-      return json({
-        text: await getAIProvider().rewrite(text, instruction, analysis),
-        provider: process.env.AI_ENDPOINT ? 'http' : 'local',
-      });
+      const tone = z
+        .enum(tones as [Tone, ...Tone[]])
+        .default('Personality')
+        .parse(body.tone);
+      return json(await rewriteSelection(text, instruction, analysis, tone, getRewriteProvider()));
     }
     if (path === 'screenshots') {
       const tasks = z.record(z.boolean()).parse(body.tasks);

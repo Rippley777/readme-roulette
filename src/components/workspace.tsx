@@ -516,9 +516,18 @@ export default function Workspace() {
         repo: repo.fullName,
         text: markdown.slice(start, end),
         instruction,
+        tone,
       });
       setMarkdown(markdown.slice(0, start) + data.text + markdown.slice(end));
-      notify('Selection updated using local editing rules.');
+      notify(
+        data.provider === 'unchanged'
+          ? 'No supported rewrite was found. Your selection is unchanged.'
+          : data.provider === 'local-fallback'
+            ? 'Provider copy did not pass review. Applied a local edit.'
+            : data.provider === 'http'
+              ? 'Selection updated and checked against product evidence.'
+              : 'Selection updated using local editing rules.',
+      );
     } catch (e) {
       notify((e as Error).message);
     } finally {
