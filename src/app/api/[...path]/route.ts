@@ -9,14 +9,18 @@ import { DocumentationGenerator, profiles, tones } from '@/lib/generator';
 import { demoRepos } from '@/lib/demo';
 import { Analysis, Profile, Tone } from '@/lib/types';
 import { scoreRepository } from '@/lib/score';
-import { getRewriteProvider, getDraftWriter } from '@/lib/ai-provider';
+import { generationProviders } from '@/lib/ai-provider';
+import { aiSettingsStore } from '@/lib/ai-settings';
+import { aiProviders } from '@/lib/byok-types';
+import { keySchema, modelSchema, listModels, verifyCredential } from '@/lib/byok-provider';
+import { ProviderError } from '@/lib/provider-error';
 import { generateReadme } from '@/lib/generation-service';
 import { rewriteSelection } from '@/lib/rewrite-service';
 export const runtime = 'nodejs';
 const repoSchema = z.string().regex(/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/);
 async function context() {
   const jar = await cookies();
-  const session = getSession(jar.get('rr_session')?.value || '');
+  const session = await getSession(jar.get('rr_session')?.value || '');
   let demoId = jar.get('rr_demo')?.value;
   if (!demoId || !/^[a-f0-9]{32}$/.test(demoId)) {
     demoId = randomBytes(16).toString('hex');
@@ -101,7 +105,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ path
       if (!data.access_token) throw new Error('GitHub did not grant access. Please try again.');
       const provider = new GitHubProvider(data.access_token);
       const user = await provider.request('/user');
-      const sessionId = createSession(user, data.access_token);
+      const sessionId = await createSession(user, data.access_token);
       jar.set('rr_session', sessionId, {
         httpOnly: true,
         sameSite: 'lax',
@@ -112,7 +116,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ path
       return NextResponse.redirect(new URL('/', requestOrigin(req)));
     }
     const ctx = await context();
-    if (path === 'session')
+    if (path === 'ai/settings') {
+      if (!ctx.session) return json({ error: 'Connect GitHub to manage your AI key.' }, 401);
+      return json(await aiSettingsStore.publicSettings(ctx.uid));
+    }
+    if (path === 'session') {
+      const ai = ctx.session
+        ? await aiSettingsStore.publicSettings(ctx.uid)
+        : { configured: false };
       return json({
         user: ctx.session ? { login: ctx.session.login, avatar: ctx.session.avatar } : null,
         demo: !ctx.session,
@@ -121,15 +132,17 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ path
           process.env.GITHUB_CLIENT_SECRET &&
           process.env.SESSION_SECRET,
         ),
-        generationProvider: process.env.AI_ENDPOINT ? 'http' : 'local',
+        generationProvider: ai.configured ? 'byok' : process.env.AI_ENDPOINT ? 'http' : 'local',
+        ai,
       });
+    }
     if (path === 'repos') {
       const repos = await ctx.provider.list();
       if (ctx.session)
         for (const repo of repos) {
-          const stored = db
+          const stored = (await db
             .prepare('SELECT data FROM analyses WHERE id=? AND user_id=?')
-            .get(`${ctx.uid}:${repo.fullName}`, ctx.uid) as { data: string } | undefined;
+            .get(`${ctx.uid}:${repo.fullName}`, ctx.uid)) as { data: string } | undefined;
           if (stored) {
             const a: Analysis = JSON.parse(stored.data);
             repo.score = scoreRepository(repo, a.readme).total;
@@ -145,7 +158,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ path
     if (path === 'versions') {
       const repo = repoSchema.parse(req.nextUrl.searchParams.get('repo'));
       return json(
-        db
+        await db
           .prepare(
             'SELECT id,markdown,created_at FROM readme_versions WHERE user_id=? AND repo=? ORDER BY id DESC LIMIT 30',
           )
@@ -154,6 +167,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ path
     }
     return json({ error: 'Not found' }, 404);
   } catch (e) {
+    if (e instanceof ProviderError) return json({ error: e.message, code: e.code }, 400);
     return json({ error: e instanceof Error ? e.message : 'Request failed' }, 400);
   }
 }
@@ -168,11 +182,29 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pat
     const ctx = await context();
     if (path === 'auth/logout') {
       const jar = await cookies();
-      deleteSession(jar.get('rr_session')?.value || '');
+      await deleteSession(jar.get('rr_session')?.value || '');
       jar.delete('rr_session');
       return json({ ok: true });
     }
     const body = await req.json();
+    if (path === 'ai/settings') {
+      if (!ctx.session) return json({ error: 'Connect GitHub to manage your AI key.' }, 401);
+      const operation = z.enum(['models', 'save', 'remove']).parse(body.operation);
+      if (operation === 'remove') {
+        await aiSettingsStore.remove(ctx.uid);
+        return json({ configured: false });
+      }
+      const provider = z.enum(aiProviders).parse(body.provider);
+      const providedKey = body.apiKey ? keySchema.parse(body.apiKey) : undefined;
+      const saved = providedKey ? undefined : await aiSettingsStore.credential(ctx.uid);
+      const apiKey = providedKey || (saved?.provider === provider ? saved.apiKey : undefined);
+      if (!apiKey) return json({ error: 'Enter an API key for this provider.' }, 400);
+      if (operation === 'models') return json({ models: await listModels(provider, apiKey) });
+      const model = modelSchema.parse(body.model);
+      const credential = { provider, model, apiKey };
+      await verifyCredential(credential);
+      return json(await aiSettingsStore.save(ctx.uid, credential));
+    }
     const fullName = repoSchema.parse(body.repo);
     const id = `${ctx.uid}:${fullName}`;
     if (path === 'analyze') {
@@ -180,9 +212,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pat
         ? await (ctx.provider as GitHubProvider).repository(fullName)
         : demoRepos.find((r) => r.fullName === fullName);
       if (!repo) throw new Error('Repository not found.');
-      const old = db
+      const old = (await db
         .prepare('SELECT data,updated_at FROM analyses WHERE id=? AND user_id=?')
-        .get(id, ctx.uid) as { data: string; updated_at: number } | undefined;
+        .get(id, ctx.uid)) as { data: string; updated_at: number } | undefined;
       if (
         old &&
         !body.refresh &&
@@ -191,34 +223,24 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pat
       )
         return json(JSON.parse(old.data));
       const analysis = await new RepositoryAnalyzer(ctx.provider).analyze(repo);
-      db.prepare('INSERT OR REPLACE INTO analyses VALUES (?,?,?,?,?)').run(
-        id,
-        ctx.uid,
-        analysis.headSha,
-        JSON.stringify(analysis),
-        Date.now(),
-      );
-      db.prepare('INSERT OR REPLACE INTO repositories VALUES (?,?,?)').run(
-        id,
-        ctx.uid,
-        JSON.stringify(repo),
-      );
+      await db
+        .prepare('INSERT OR REPLACE INTO analyses VALUES (?,?,?,?,?)')
+        .run(id, ctx.uid, analysis.headSha, JSON.stringify(analysis), Date.now());
+      await db
+        .prepare('INSERT OR REPLACE INTO repositories VALUES (?,?,?)')
+        .run(id, ctx.uid, JSON.stringify(repo));
       return json(analysis);
     }
-    const stored = db
+    const stored = (await db
       .prepare('SELECT data FROM analyses WHERE id=? AND user_id=?')
-      .get(id, ctx.uid) as { data: string } | undefined;
+      .get(id, ctx.uid)) as { data: string } | undefined;
     if (!stored) throw new Error('Analyze this repository first.');
     let analysis: Analysis = JSON.parse(stored.data);
     if (analysis.product?.version !== 2) {
       analysis = await new RepositoryAnalyzer(ctx.provider).analyze(analysis.repo);
-      db.prepare('INSERT OR REPLACE INTO analyses VALUES (?,?,?,?,?)').run(
-        id,
-        ctx.uid,
-        analysis.headSha,
-        JSON.stringify(analysis),
-        Date.now(),
-      );
+      await db
+        .prepare('INSERT OR REPLACE INTO analyses VALUES (?,?,?,?,?)')
+        .run(id, ctx.uid, analysis.headSha, JSON.stringify(analysis), Date.now());
     }
     const generator = new DocumentationGenerator();
     if (path === 'generate') {
@@ -228,10 +250,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pat
       const sections = body.sections ? z.array(z.string()).max(30).parse(body.sections) : undefined;
       const badges = body.badges ? z.array(z.string()).max(20).parse(body.badges) : undefined;
       const tone = z.enum(tones as [Tone, ...Tone[]]).parse(body.tone || 'Personality');
+      const providers = await generationProviders(ctx.session?.userId);
       const result = await generateReadme(
         analysis,
         { profile, tone, sections, badges },
-        getDraftWriter(),
+        providers.writer,
       );
       // Editorial diagnostics stay internal; users see evidence, not an invented AI score.
       return json({
@@ -239,40 +262,35 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pat
         sections: result.sections,
         inspection: result.inspection,
         provider: result.provider,
+        writer: result.provider === 'http' ? providers.label : 'Local writer',
         tone,
         score: scoreRepository(analysis.repo, result.markdown),
       });
     }
     if (path === 'save') {
       const markdown = z.string().max(300000).parse(body.markdown);
-      db.transaction(() => {
-        db.prepare('INSERT OR REPLACE INTO readmes VALUES (?,?,?,?,?)').run(
-          id,
-          ctx.uid,
-          fullName,
-          markdown,
-          Date.now(),
-        );
-        db.prepare(
-          'INSERT INTO readme_versions (user_id,repo,markdown,created_at) VALUES (?,?,?,?)',
-        ).run(ctx.uid, fullName, markdown, Date.now());
-        const score = scoreRepository(analysis.repo, markdown);
-        db.prepare('INSERT OR REPLACE INTO repository_scores VALUES (?,?,?,?)').run(
-          id,
-          ctx.uid,
-          score.total,
-          JSON.stringify(score.criteria),
-        );
-      })();
+      const score = scoreRepository(analysis.repo, markdown);
+      await db.batch([
+        {
+          text: 'INSERT OR REPLACE INTO readmes VALUES (?,?,?,?,?)',
+          values: [id, ctx.uid, fullName, markdown, Date.now()],
+        },
+        {
+          text: 'INSERT INTO readme_versions (user_id,repo,markdown,created_at) VALUES (?,?,?,?)',
+          values: [ctx.uid, fullName, markdown, Date.now()],
+        },
+        {
+          text: 'INSERT OR REPLACE INTO repository_scores VALUES (?,?,?,?)',
+          values: [id, ctx.uid, score.total, JSON.stringify(score.criteria)],
+        },
+      ]);
       return json({ ok: true });
     }
     if (path === 'portfolio') {
       const data = generator.portfolio(analysis);
-      db.prepare('INSERT OR REPLACE INTO portfolio_descriptions VALUES (?,?,?)').run(
-        id,
-        ctx.uid,
-        JSON.stringify(data),
-      );
+      await db
+        .prepare('INSERT OR REPLACE INTO portfolio_descriptions VALUES (?,?,?)')
+        .run(id, ctx.uid, JSON.stringify(data));
       return json(data);
     }
     if (path === 'rewrite') {
@@ -284,19 +302,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pat
         .enum(tones as [Tone, ...Tone[]])
         .default('Personality')
         .parse(body.tone);
-      return json(await rewriteSelection(text, instruction, analysis, tone, getRewriteProvider()));
+      const providers = await generationProviders(ctx.session?.userId);
+      return json(await rewriteSelection(text, instruction, analysis, tone, providers.rewriter));
     }
     if (path === 'screenshots') {
       const tasks = z.record(z.boolean()).parse(body.tasks);
-      db.transaction(() => {
-        for (const [task, completed] of Object.entries(tasks))
-          db.prepare('INSERT OR REPLACE INTO screenshot_tasks VALUES (?,?,?,?)').run(
-            `${id}:${task}`,
-            ctx.uid,
-            fullName,
-            Number(completed),
-          );
-      })();
+      await db.batch(
+        Object.entries(tasks).map(([task, completed]) => ({
+          text: 'INSERT OR REPLACE INTO screenshot_tasks VALUES (?,?,?,?)',
+          values: [`${id}:${task}`, ctx.uid, fullName, Number(completed)],
+        })),
+      );
       return json({ ok: true });
     }
     if (path === 'publish') {
@@ -325,6 +341,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pat
     }
     return json({ error: 'Not found' }, 404);
   } catch (e) {
+    if (e instanceof ProviderError) return json({ error: e.message, code: e.code }, 400);
     return json({ error: e instanceof Error ? e.message : 'Request failed' }, 400);
   }
 }

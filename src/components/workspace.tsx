@@ -1,4 +1,6 @@
 'use client';
+import { AISettingsCard } from './ai-settings';
+import { AISettings, aiProviderLabels } from '@/lib/byok-types';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   ArrowUpRight,
@@ -200,6 +202,7 @@ export default function Workspace() {
     demo: boolean;
     configured: boolean;
     generationProvider?: string;
+    ai?: AISettings;
   }>({ user: null, demo: true, configured: false });
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
@@ -214,6 +217,7 @@ export default function Workspace() {
   const [markdown, setMarkdown] = useState('');
   const [profile, setProfile] = useState<Profile>('Professional');
   const [tone, setTone] = useState<Tone>('Personality');
+  const [lastWriter, setLastWriter] = useState('');
   const [inspection, setInspection] = useState<GenerationInspection>([]);
   const [showInspection, setShowInspection] = useState(false);
   const [sections, setSections] = useState<string[]>([]);
@@ -359,6 +363,7 @@ export default function Workspace() {
     setAnalysis(null);
     setTab('overview');
     setInspection([]);
+    setLastWriter('');
     setShowInspection(false);
     setBusy('Inspecting repository');
     setMarkdown('');
@@ -409,6 +414,9 @@ export default function Workspace() {
       });
       if (request !== activeRequest.current) return;
       setMarkdown(data.markdown);
+      setLastWriter(
+        data.writer || (data.provider === 'http' ? 'Workspace AI provider' : 'Local writer'),
+      );
       setProfile(nextProfile);
       rememberTone(nextTone);
       setSections(data.sections.map((s: { id: string }) => s.id));
@@ -417,7 +425,7 @@ export default function Workspace() {
       record(`Generated a ${nextProfile.toLowerCase()} README for ${repo.name}`);
       notify(
         data.provider === 'local-fallback'
-          ? 'Provider copy did not pass review. Your README uses the grounded local draft.'
+          ? 'AI copy did not pass the quality checks. Showing the grounded local draft instead.'
           : 'Your new README is ready. Make it yours.',
       );
     } catch (e) {
@@ -1313,6 +1321,12 @@ export default function Workspace() {
                   </button>
                 )}
               </div>
+              <AISettingsCard
+                signedIn={!session.demo}
+                settings={session.ai || { configured: false }}
+                onChange={async () => setSession(await api('session'))}
+                onConnect={() => setModal('connect')}
+              />
               <div className="settings-card">
                 <h3>README personality</h3>
                 <p>Choose how your project introduces itself. Personality is the default.</p>
@@ -1344,7 +1358,7 @@ export default function Workspace() {
                   contribute variable names only. Publishing always requires a reviewed diff.
                 </p>
                 <p className="muted">
-                  {session.generationProvider === 'http'
+                  {session.generationProvider !== 'local'
                     ? 'Your configured documentation provider receives normalized project evidence. Full source files are not sent.'
                     : 'Generation uses a deterministic local provider. No repository code is sent to a third-party AI service.'}
                 </p>
@@ -1915,9 +1929,11 @@ export default function Workspace() {
                             </div>
                             <p className="local-provider-note">
                               <ShieldCheck size={13} />
-                              {session.generationProvider === 'http'
-                                ? 'Connected documentation provider'
-                                : 'Product-aware local generation'}
+                              {session.ai?.configured
+                                ? `${aiProviderLabels[session.ai.provider!]} · ${session.ai.model}`
+                                : session.generationProvider === 'http'
+                                  ? 'Workspace AI provider'
+                                  : 'Product-aware local generation'}
                             </p>
                           </div>
                         </div>
@@ -1926,6 +1942,14 @@ export default function Workspace() {
                         <div>
                           <FileText size={14} />
                           <span>README.md</span>
+                          {lastWriter && (
+                            <span
+                              className="writer-label"
+                              title="Writer used for the last full generation"
+                            >
+                              {lastWriter}
+                            </span>
+                          )}
                           <span className="unsaved-dot" />
                         </div>
                         <div className="view-toggle">

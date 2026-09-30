@@ -1,4 +1,5 @@
 {
+  "license": "SEE LICENSE IN LICENSE",
   "name": "readme-roulette",
   "version": "1.0.0",
   "private": true,
@@ -9,12 +10,21 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "test:browser": "node tests/browser-check.mjs",
-    "format": "prettier --write src tests next.config.ts"
+    "test:byok-browser": "node tests/byok-browser.mjs",
+    "test:login": "node tests/login-browser.mjs",
+    "format": "prettier --write src tests next.config.ts",
+    "deploy": "python3 scripts/deploy.py",
+    "deploy:setup": "python3 scripts/deploy.py setup",
+    "deploy:configure": "python3 scripts/deploy.py configure",
+    "deploy:status": "python3 scripts/deploy.py status",
+    "deploy:login": "python3 scripts/deploy.py login",
+    "test:deploy": "python3 -m unittest discover -s tests -p \"test_deploy.py\""
   },
   "dependencies": {
     "better-sqlite3": "^11.10.0",
     "diff": "^8.0.0",
     "lucide-react": "^0.468.0",
+    "mssql": "^11.0.2",
     "next": "^15.5.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
@@ -26,6 +36,7 @@
   "devDependencies": {
     "@playwright/test": "^1.51.0",
     "@types/better-sqlite3": "^7.6.13",
+    "@types/mssql": "^9.1.11",
     "@types/node": "^20.17.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
@@ -34,5 +45,8 @@
   },
   "overrides": {
     "postcss": "^8.5.28"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

@@ -42,7 +42,11 @@ The internal pass removes duplicated sentences, boilerplate, dependency-as-featu
 
 Optional model responses must preserve the section plan, project identity, technical bodies, commands, versions, images, and author-authored motivation. Rewritten product copy cites allowed claim IDs internally. Validators check those references, unsupported capability/platform claims, invented numbers, personal stories, comparisons, and whether the introduction still explains an evidenced action.
 
-These checks are deliberately conservative, but are not a general semantic verifier. The code cannot prove every possible natural-language paraphrase. Human review and the evidence inspector remain valuable. A candidate that fails gets one repair attempt; a second failure, malformed response, or provider error falls back to the local draft. The UI makes that fallback explicit. Publishing still requires a reviewed diff.
+These checks are deliberately conservative, but are not a general semantic verifier. The code cannot prove every possible natural-language paraphrase. Human review and the evidence inspector remain valuable. A candidate that fails gets one repair attempt; a second invalid candidate falls back to the local draft. The UI makes that fallback explicit. Personal-key authentication, quota, network, incomplete-response, and protocol errors instead leave the draft unchanged and display an actionable error. Legacy HTTP adapter errors retain their existing local fallback. Publishing still requires a reviewed diff.
+
+## Personal OpenAI and Anthropic keys
+
+Signed-in users can connect a provider in **Settings → Bring your own AI key**. The account's encrypted key and chosen model are used for full generation, section regeneration, and selected-text rewrites, with the same tone instructions and quality checks. The server uses OpenAI's Responses API (JSON mode, `store: false`) or Anthropic's Messages API. Personal settings take priority over the workspace HTTP adapter; local generation remains available without a connection. See [BYOK setup and privacy](byok.md).
 
 ## Optional HTTP adapter
 

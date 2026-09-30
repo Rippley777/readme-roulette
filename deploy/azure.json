@@ -1,0 +1,158 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "name": {
+      "type": "string"
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "centralus"
+    },
+    "sqlPassword": {
+      "type": "securestring"
+    },
+    "sessionSecret": {
+      "type": "securestring"
+    },
+    "githubClientId": {
+      "type": "string",
+      "defaultValue": ""
+    },
+    "githubClientSecret": {
+      "type": "securestring",
+      "defaultValue": ""
+    },
+    "publicUrl": {
+      "type": "string",
+      "defaultValue": ""
+    }
+  },
+  "variables": {
+    "server": "[concat(parameters('name'), '-sql')]",
+    "plan": "[concat(parameters('name'), '-free')]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Web/serverfarms",
+      "apiVersion": "2023-12-01",
+      "name": "[variables('plan')]",
+      "location": "[parameters('location')]",
+      "kind": "linux",
+      "sku": {
+        "name": "F1",
+        "tier": "Free",
+        "capacity": 1
+      },
+      "properties": {
+        "reserved": true
+      }
+    },
+    {
+      "type": "Microsoft.Sql/servers",
+      "apiVersion": "2023-08-01",
+      "name": "[variables('server')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "administratorLogin": "rouletteadmin",
+        "administratorLoginPassword": "[parameters('sqlPassword')]",
+        "version": "12.0",
+        "minimalTlsVersion": "1.2",
+        "publicNetworkAccess": "Enabled"
+      }
+    },
+    {
+      "type": "Microsoft.Sql/servers/databases",
+      "apiVersion": "2023-08-01",
+      "name": "[concat(variables('server'), '/roulette')]",
+      "location": "[parameters('location')]",
+      "dependsOn": ["[resourceId('Microsoft.Sql/servers', variables('server'))]"],
+      "sku": {
+        "name": "GP_S_Gen5_2",
+        "tier": "GeneralPurpose",
+        "family": "Gen5",
+        "capacity": 2
+      },
+      "properties": {
+        "useFreeLimit": true,
+        "freeLimitExhaustionBehavior": "AutoPause",
+        "autoPauseDelay": 60,
+        "minCapacity": 0.5,
+        "maxSizeBytes": 34359738368,
+        "requestedBackupStorageRedundancy": "Local",
+        "zoneRedundant": false
+      }
+    },
+    {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2023-12-01",
+      "name": "[parameters('name')]",
+      "location": "[parameters('location')]",
+      "kind": "app,linux",
+      "dependsOn": ["[resourceId('Microsoft.Web/serverfarms', variables('plan'))]"],
+      "properties": {
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('plan'))]",
+        "httpsOnly": true,
+        "siteConfig": {
+          "linuxFxVersion": "NODE|22-lts",
+          "appCommandLine": "node server.js",
+          "alwaysOn": false,
+          "ftpsState": "Disabled",
+          "minTlsVersion": "1.2",
+          "appSettings": [
+            {
+              "name": "NODE_ENV",
+              "value": "production"
+            },
+            {
+              "name": "HOSTNAME",
+              "value": "0.0.0.0"
+            },
+            {
+              "name": "SCM_DO_BUILD_DURING_DEPLOYMENT",
+              "value": "false"
+            },
+            {
+              "name": "APP_URL",
+              "value": "[if(empty(parameters('publicUrl')), concat('https://', parameters('name'), '.azurewebsites.net'), parameters('publicUrl'))]"
+            },
+            {
+              "name": "SESSION_SECRET",
+              "value": "[parameters('sessionSecret')]"
+            },
+            {
+              "name": "GITHUB_CLIENT_ID",
+              "value": "[parameters('githubClientId')]"
+            },
+            {
+              "name": "GITHUB_CLIENT_SECRET",
+              "value": "[parameters('githubClientSecret')]"
+            },
+            {
+              "name": "AZURE_SQL_SERVER",
+              "value": "[concat(variables('server'), '.database.windows.net')]"
+            },
+            {
+              "name": "AZURE_SQL_DATABASE",
+              "value": "roulette"
+            },
+            {
+              "name": "AZURE_SQL_USER",
+              "value": "rouletteadmin"
+            },
+            {
+              "name": "AZURE_SQL_PASSWORD",
+              "value": "[parameters('sqlPassword')]"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "hostname": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Web/sites', parameters('name'))).defaultHostName]"
+    }
+  }
+}

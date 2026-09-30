@@ -2,6 +2,7 @@ import { chromium } from '@playwright/test';
 import assert from 'node:assert/strict';
 import { mkdirSync } from 'node:fs';
 mkdirSync('artifacts', { recursive: true });
+const baseUrl = process.env.TEST_BASE_URL || 'http://localhost:3000';
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({
   viewport: { width: 1440, height: 1120 },
@@ -9,7 +10,8 @@ const page = await browser.newPage({
 });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
-await page.goto('http://localhost:3000', { waitUntil: 'networkidle' });
+page.setDefaultTimeout(90000);
+await page.goto(baseUrl, { waitUntil: 'networkidle' });
 await page.screenshot({ path: 'artifacts/dashboard.png', fullPage: true, animations: 'disabled' });
 console.log('title', await page.title());
 await page.getByPlaceholder('Find a repository...').fill('plant');
@@ -103,11 +105,11 @@ await page.getByLabel('README Markdown source').fill('# Temporary draft');
 await page.getByRole('button', { name: 'Version history', exact: true }).click();
 await page.getByRole('button', { name: 'Restore', exact: true }).first().click();
 assert.equal(await page.getByLabel('README Markdown source').inputValue(), savedMarkdown);
-const rejectedWrite = await page.request.post('http://localhost:3000/api/publish', {
+const rejectedWrite = await page.request.post(`${baseUrl}/api/publish`, {
   data: { repo: 'alexmorgan/port-authority', markdown: savedMarkdown, reviewed: true, mode: 'pr' },
 });
 assert.equal(rejectedWrite.status(), 401);
-const rejectedOrigin = await page.request.post('http://localhost:3000/api/analyze', {
+const rejectedOrigin = await page.request.post(`${baseUrl}/api/analyze`, {
   headers: { Origin: 'https://untrusted.example' },
   data: { repo: 'alexmorgan/port-authority' },
 });

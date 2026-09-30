@@ -7,3 +7,7 @@ node_modules/
 *.tsbuildinfo
 test-results/
 playwright-report/
+.azure/
+.deploy/
+__pycache__/
+.wrangler/

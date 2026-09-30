@@ -1,3 +1,4 @@
+import { ProviderError } from './provider-error';
 import { AIProvider, Analysis, Tone } from './types';
 import { allProductFacts, DocumentationGenerator, LocalAIProvider } from './generator';
 import { markdownSegments } from './markdown-sections';
@@ -66,7 +67,8 @@ export async function rewriteSelection(
             section: 'Selection',
             detail: 'Never return credentials.',
           });
-      } catch {
+      } catch (error) {
+        if (error instanceof ProviderError) throw error;
         break;
       }
     }

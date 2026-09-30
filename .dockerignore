@@ -5,3 +5,8 @@ node_modules
 .env*
 artifacts
 .git
+
+.azure
+.deploy
+**/__pycache__
+.wrangler

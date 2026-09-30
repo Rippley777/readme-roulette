@@ -1,4 +1,7 @@
 import { AIProvider, Analysis } from './types';
+import { aiSettingsStore } from './ai-settings';
+import { BYOKProvider } from './byok-provider';
+import { aiProviderLabels } from './byok-types';
 import { redact } from './safety';
 import { generationPrompt } from './generation-prompt';
 import { allProductFacts, productOf, toneDescriptions } from './generator';
@@ -87,4 +90,24 @@ export function getDraftWriter() {
   if (!process.env.AI_ENDPOINT) return undefined;
   const provider = new HttpAIProvider(process.env.AI_ENDPOINT, process.env.AI_API_KEY || '');
   return provider.writeDraft.bind(provider);
+}
+
+/** A personal key takes precedence over the administrator's adapter and local writer. */
+export async function generationProviders(userId?: string) {
+  if (userId) {
+    const credential = await aiSettingsStore.credential(userId);
+    if (credential) {
+      const provider = new BYOKProvider(credential);
+      return {
+        writer: provider.writeDraft.bind(provider),
+        rewriter: provider,
+        label: `${aiProviderLabels[credential.provider]} · ${credential.model}`,
+      };
+    }
+  }
+  return {
+    writer: getDraftWriter(),
+    rewriter: getRewriteProvider(),
+    label: process.env.AI_ENDPOINT ? 'Workspace AI provider' : 'Local writer',
+  };
 }

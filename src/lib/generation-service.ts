@@ -1,3 +1,4 @@
+import { ProviderError } from './provider-error';
 import { z } from 'zod';
 import { Analysis, Profile, ReadmeDraft, Tone } from './types';
 import { DocumentationGenerator, inspectDraft, renderDraft } from './generator';
@@ -103,7 +104,8 @@ export async function generateReadme(
           provider = 'http';
           break;
         }
-      } catch {
+      } catch (error) {
+        if (error instanceof ProviderError) throw error;
         issues = [
           {
             rule: 'provider-unavailable',
