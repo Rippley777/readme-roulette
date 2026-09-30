@@ -3,9 +3,13 @@ FROM --platform=linux/amd64 node:22-bookworm-slim AS build
 WORKDIR /build
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY package.json package-lock.json ./
+COPY vendor ./vendor
 RUN npm ci
 COPY next.config.ts tsconfig.json next-env.d.ts ./
 COPY src ./src
+ARG NEXT_PUBLIC_HOUSE_EDGE_PROJECT
+ARG NEXT_PUBLIC_HOUSE_EDGE_KEY
+ARG NEXT_PUBLIC_HOUSE_EDGE_ENDPOINT
 RUN npm run build
 RUN mkdir -p /out/.next && cp -a .next/standalone/. /out/ && cp -a .next/static /out/.next/static
 FROM scratch AS artifact

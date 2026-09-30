@@ -1,3 +1,4 @@
+import { HouseEdgeAnalytics } from '../components/house-edge-analytics';
 import type { Metadata } from 'next';
 import './globals.css';
 export const metadata: Metadata = {
@@ -8,7 +9,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <HouseEdgeAnalytics />
+        {children}
+      </body>
     </html>
   );
 }

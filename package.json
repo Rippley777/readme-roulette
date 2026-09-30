@@ -21,6 +21,7 @@
     "test:deploy": "python3 -m unittest discover -s tests -p \"test_deploy.py\""
   },
   "dependencies": {
+    "@house-edge/analytics": "file:vendor/house-edge-analytics-0.1.1.tgz",
     "better-sqlite3": "^11.10.0",
     "diff": "^8.0.0",
     "lucide-react": "^0.468.0",
